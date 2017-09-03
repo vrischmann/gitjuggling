@@ -1,0 +1,8 @@
+[package]
+name = "gitjuggling"
+version = "0.1.0"
+authors = ["Vincent Rischmann <vincent@rischmann.fr>"]
+
+[dependencies]
+term = "0.4.6"
+clap = "2.26.0"
