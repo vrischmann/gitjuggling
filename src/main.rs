@@ -1,11 +1,11 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{ExitStatus, Command};
+use std::process::{Command, ExitStatus};
 
-extern crate term;
 extern crate clap;
+extern crate term;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 
 fn find_git_dirs(current_depth: i32, max_depth: i32, path: PathBuf) -> io::Result<Vec<PathBuf>> {
     if current_depth >= max_depth {
@@ -57,6 +57,7 @@ fn run_git_command(repo: &PathBuf, args: &Vec<&str>) -> io::Result<GitResult> {
     });
 }
 
+#[derive(Debug)]
 enum Error {
     Io(io::Error),
     Term(term::Error),
@@ -107,7 +108,6 @@ fn run_app(matches: clap::ArgMatches) -> Result<(), Error> {
         return Err(Error::NoArguments);
     }
 
-
     let repos = get_repositories(depth)?;
     let mut t = term::stdout().unwrap();
 
@@ -136,7 +136,7 @@ fn run_app(matches: clap::ArgMatches) -> Result<(), Error> {
     return Ok(());
 }
 
-fn main() {
+fn main() -> Result<(), Error> {
     let matches = App::new("gitjuggling")
         .version("1.0")
         .about("Runs a git command on all sub repositories under $PWD")
@@ -151,11 +151,7 @@ fn main() {
         .arg(Arg::with_name("args").multiple(true))
         .get_matches();
 
-    std::process::exit(match run_app(matches) {
-        Ok(_) => 0,
-        Err(err) => {
-            writeln!(io::stderr(), "error: {}", err).unwrap();
-            1
-        }
-    });
+    run_app(matches)?;
+
+    Ok(())
 }
