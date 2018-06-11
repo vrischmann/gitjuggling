@@ -5,7 +5,7 @@ use std::process::{Command, ExitStatus};
 extern crate clap;
 extern crate term;
 
-use clap::{App, Arg};
+use clap::{App, AppSettings, Arg};
 
 fn find_git_dirs(current_depth: i32, max_depth: i32, path: PathBuf) -> io::Result<Vec<PathBuf>> {
     if current_depth >= max_depth {
@@ -140,6 +140,7 @@ fn main() -> Result<(), Error> {
     let matches = App::new("gitjuggling")
         .version("1.0")
         .about("Runs a git command on all sub repositories under $PWD")
+        .setting(AppSettings::AllowLeadingHyphen)
         .arg(
             Arg::with_name("depth")
                 .short("d")
