@@ -98,6 +98,7 @@ impl From<term::Error> for Error {
 
 fn run_app(matches: clap::ArgMatches) -> Result<(), Error> {
     let depth: i32 = matches.value_of("depth").unwrap_or("9999").parse()?;
+    let ignore_errors = matches.is_present("ignore-errors");
 
     let args = match matches.values_of("args") {
         Some(args) => args.collect(),
@@ -128,7 +129,7 @@ fn run_app(matches: clap::ArgMatches) -> Result<(), Error> {
         io::stdout().write(&result.stdout)?;
         io::stderr().write(&result.stderr)?;
 
-        if !result.exit_code.success() {
+        if !ignore_errors && !result.exit_code.success() {
             return Err(Error::CommandFailed);
         }
     }
@@ -148,8 +149,12 @@ fn main() -> Result<(), Error> {
                 .value_name("N")
                 .help("Only go up to a depth of N")
                 .takes_value(true),
-        )
-        .arg(Arg::with_name("args").multiple(true))
+        ).arg(
+            Arg::with_name("ignore-errors")
+                .short("i")
+                .long("ignore-errors")
+                .help("Ignore git errors"),
+        ).arg(Arg::with_name("args").multiple(true))
         .get_matches();
 
     run_app(matches)?;
