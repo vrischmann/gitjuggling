@@ -76,8 +76,6 @@ fn get_repositories_paths() -> anyhow::Result<Vec<PathBuf>> {
 
         path.pop();
 
-        println!("path: {:?}", path);
-
         repositories_paths.push(path);
     }
 
