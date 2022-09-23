@@ -24,10 +24,12 @@ fn do_git_command(path: &Path, args: &[&str]) -> anyhow::Result<GitOutput> {
     }
 }
 
-fn get_repositories_paths() -> anyhow::Result<Vec<PathBuf>> {
+fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
     let mut repositories_paths = Vec::<PathBuf>::new();
 
-    for entry in WalkDir::new(".") {
+    let walker = WalkDir::new(".").max_depth(depth);
+
+    for entry in walker {
         let entry = entry?;
         let entry_path = entry.into_path();
 
@@ -61,18 +63,26 @@ fn main() {
         .version("1.0")
         .about("Git juggler")
         .trailing_var_arg(true)
+        .arg(
+            clap::Arg::new("depth")
+                .long("depth")
+                .short('d')
+                .takes_value(true),
+        )
         .arg(clap::Arg::new("git_args").multiple_values(true))
         .get_matches();
 
     let git_args: Vec<&str> = matches
         .get_many::<String>("git_args")
-        .unwrap()
+        .unwrap_or_default()
         .map(|v| v.as_str())
         .collect();
 
     // Collect all local git repositories
 
-    let repositories_paths = match get_repositories_paths() {
+    let depth = matches.get_one::<usize>("depth").map(|v| *v).unwrap_or(3);
+
+    let repositories_paths = match get_repositories_paths(depth) {
         Err(err) => panic!("unable to get repositories paths: {}", err),
         Ok(v) => v,
     };
