@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use clap;
 use colored::Colorize;
 use rayon::prelude::*;
 use std::fmt::Write as FmtWrite;
@@ -87,9 +86,9 @@ fn main() {
         let mut stdout = String::new();
         let mut stderr = String::new();
 
-        write!(
+        writeln!(
             &mut stdout,
-            "{} executing {}\n",
+            "{} executing {}",
             &path.to_string_lossy().to_string().green(),
             &git_args.join(" ").yellow()
         )
