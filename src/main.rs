@@ -2,9 +2,12 @@ use anyhow::anyhow;
 use clap;
 use colored::Colorize;
 use rayon::prelude::*;
+use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 struct GitOutput {
@@ -20,35 +23,6 @@ fn do_git_command(path: &Path, args: &[&str]) -> anyhow::Result<GitOutput> {
         Ok(output) => Ok(GitOutput { output }),
         Err(err) => Err(anyhow!(err)),
     }
-}
-
-#[derive(Debug)]
-struct StandardOutputs {
-    stdout: String,
-    stderr: String,
-}
-
-impl StandardOutputs {
-    fn from_utf8_lossy(stdout: &[u8], stderr: &[u8]) -> Self {
-        return StandardOutputs {
-            stdout: String::from_utf8_lossy(stdout).to_string(),
-            stderr: String::from_utf8_lossy(stderr).to_string(),
-        };
-    }
-}
-
-#[derive(Debug)]
-struct ProcessingResult<'a> {
-    path: PathBuf,
-    args: &'a [&'a str],
-    kind: ProcessingResultKind,
-}
-
-#[derive(Debug)]
-enum ProcessingResultKind {
-    Failure(String),
-    GitFailure(StandardOutputs),
-    GitSuccess(StandardOutputs),
 }
 
 fn get_repositories_paths() -> anyhow::Result<Vec<PathBuf>> {
@@ -106,78 +80,59 @@ fn main() {
 
     //
 
-    let mut processing_results = Vec::<ProcessingResult>::new();
+    let items_failed = Arc::<AtomicUsize>::new(AtomicUsize::new(0));
+    let items_succeeded = Arc::<AtomicUsize>::new(AtomicUsize::new(0));
 
-    let processing_iterator = repositories_paths.into_par_iter().map(|directory| {
-        match do_git_command(&directory, &git_args) {
-            Err(err) => ProcessingResult {
-                path: directory,
-                args: &git_args,
-                kind: ProcessingResultKind::Failure(format!(
-                    "unable to do git command, err: {}",
-                    err
-                )),
-            },
+    repositories_paths.into_par_iter().for_each(|path| {
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+
+        write!(
+            &mut stdout,
+            "{} executing {}\n",
+            &path.to_string_lossy().to_string().green(),
+            &git_args.join(" ").yellow()
+        )
+        .unwrap();
+
+        match do_git_command(&path, &git_args) {
+            Err(err) => {
+                items_failed.fetch_add(1, Ordering::SeqCst);
+                write!(&mut stderr, "unable to do git command, err: {}", err).unwrap();
+            }
             Ok(go) => {
-                let standard_outputs =
-                    StandardOutputs::from_utf8_lossy(&go.output.stdout, &go.output.stderr);
+                let go_stdout = String::from_utf8_lossy(&go.output.stdout);
+                let go_stderr = String::from_utf8_lossy(&go.output.stderr);
 
                 if go.output.status.success() {
-                    ProcessingResult {
-                        path: directory,
-                        args: &git_args,
-                        kind: ProcessingResultKind::GitSuccess(standard_outputs),
-                    }
+                    items_succeeded.fetch_add(1, Ordering::SeqCst);
+                    write!(&mut stdout, "{}", go_stdout).unwrap();
                 } else {
-                    ProcessingResult {
-                        path: directory,
-                        args: &git_args,
-                        kind: ProcessingResultKind::GitFailure(standard_outputs),
-                    }
+                    items_failed.fetch_add(1, Ordering::SeqCst);
+                    write!(&mut stdout, "{}", go_stdout,).unwrap();
+                    write!(&mut stderr, "{}", go_stderr,).unwrap();
                 }
             }
         }
+
+        io::stdout().write_all(stdout.as_bytes()).unwrap();
+        io::stderr().write_all(stderr.as_bytes()).unwrap();
     });
-    processing_results.par_extend(processing_iterator);
 
     //
 
-    let mut items_failed: usize = 0;
-    let mut items_succeeded: usize = 0;
-
-    for result in processing_results {
-        println!(
-            "{} executing {}",
-            result.path.to_string_lossy().to_string().green(),
-            result.args.join(" ").yellow()
-        );
-
-        match result.kind {
-            ProcessingResultKind::Failure(err) => {
-                items_failed += 1;
-                println!("{}", &err);
-            }
-            ProcessingResultKind::GitFailure(outputs) => {
-                items_failed += 1;
-                io::stdout().write_all(outputs.stdout.as_bytes()).unwrap();
-                io::stderr().write_all(outputs.stderr.as_bytes()).unwrap();
-            }
-            ProcessingResultKind::GitSuccess(outputs) => {
-                items_succeeded += 1;
-                io::stdout().write_all(outputs.stdout.as_bytes()).unwrap();
-            }
-        }
-    }
+    let succeeded = items_succeeded.load(Ordering::SeqCst);
+    let failed = items_failed.load(Ordering::SeqCst);
 
     println!(
         "{} {} {} {}",
-        format!("{}", items_succeeded).magenta(),
+        format!("{}", succeeded).magenta(),
         "items succeeded,".blue(),
-        format!("{}", items_failed).magenta(),
+        format!("{}", failed).magenta(),
         "items failed".blue(),
     );
 
-    if items_failed > 0 {
+    if failed > 0 {
         process::exit(1);
     }
 }
