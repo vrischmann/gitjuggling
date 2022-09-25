@@ -80,7 +80,7 @@ fn main() {
 
     // Collect all local git repositories
 
-    let depth = matches.get_one::<usize>("depth").map(|v| *v).unwrap_or(3);
+    let depth = matches.get_one::<usize>("depth").copied().unwrap_or(3);
 
     let repositories_paths = match get_repositories_paths(depth) {
         Err(err) => panic!("unable to get repositories paths: {}", err),
