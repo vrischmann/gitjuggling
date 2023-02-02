@@ -1,3 +1,5 @@
+#![allow(clippy::uninlined_format_args)]
+
 use anyhow::anyhow;
 use colored::Colorize;
 use rayon::prelude::*;
