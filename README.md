@@ -24,3 +24,13 @@ $ gitjuggling fetch --all -p
 /tmp/test/bar executing fetch --all -p
 3 items succeeded, 0 items failed
 ```
+
+# Installation
+
+## Fedora
+
+You can use the COPR repository:
+```
+$ sudo dnf copr enable vrischmann/gitjuggling
+$ sudo dnf install --refresh gitjuggling
+```
