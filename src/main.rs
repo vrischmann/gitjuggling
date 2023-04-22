@@ -77,7 +77,7 @@ fn main() {
     let git_args: Vec<&str> = matches
         .get_many::<String>("git_args")
         .unwrap_or_default()
-        .map(|v| v.as_str())
+        .map(String::as_str)
         .collect();
 
     // Collect all local git repositories
