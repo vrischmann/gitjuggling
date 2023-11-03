@@ -2,14 +2,18 @@
 
 use anyhow::anyhow;
 use colored::Colorize;
+use gitmodules::GitModules;
 use rayon::prelude::*;
 use std::fmt::Write as FmtWrite;
-use std::io::{self, Write};
+use std::fs::File;
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
+
+mod gitmodules;
 
 struct GitOutput {
     output: std::process::Output,
@@ -26,10 +30,46 @@ fn do_git_command(path: &Path, args: &[&str]) -> anyhow::Result<GitOutput> {
     }
 }
 
+fn parse_gitmodules(path: &Path) -> anyhow::Result<GitModules> {
+    let contents = {
+        let mut file = File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        contents
+    };
+
+    let gitmodules = GitModules::parse(&contents)?;
+
+    Ok(gitmodules)
+}
+
+fn is_submodule(path: &Path, gitmodules: Option<&GitModules>) -> anyhow::Result<bool> {
+    match gitmodules {
+        Some(gitmodules) => {
+            // If this is a submodule:
+            // * path is the git submodule directory
+            // * parent path is the parent git repository containing the gitmodules
+
+            let parent_path = path.parent().ok_or(anyhow!("no parent path"))?;
+
+            let tmp = parent_path
+                .components()
+                .last()
+                .map(|p| PathBuf::from(p.as_os_str()))
+                .ok_or(anyhow!("no last component"))?;
+
+            Ok(gitmodules.contains(&tmp))
+        }
+        None => Ok(false),
+    }
+}
+
 fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
     let mut repositories_paths = Vec::<PathBuf>::new();
 
     let walker = WalkDir::new(".").max_depth(depth);
+
+    let mut gitmodules: Option<GitModules> = None;
 
     for entry in walker {
         let entry = entry?;
@@ -44,10 +84,18 @@ fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
         };
         let path_string = path.to_string_lossy();
 
-        if !path_string.ends_with(".git")
-            || path_string.contains("third_party")
-            || path_string.contains(".zigmod")
-        {
+        // Parse the gitmodules file if it exists
+        let gitmodules_path = path.join(".gitmodules");
+        if gitmodules_path.exists() {
+            gitmodules = Some(parse_gitmodules(&gitmodules_path)?)
+        }
+
+        // Ignore directories that aren't a git repository
+        if !path_string.ends_with(".git") {
+            continue;
+        }
+        // Ignore repositories that are a submoduile
+        if is_submodule(&path, gitmodules.as_ref())? {
             continue;
         }
 
