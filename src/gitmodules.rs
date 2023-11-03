@@ -45,7 +45,7 @@ enum ParseError {
     #[error("invalid file: {0}")]
     InvalidFile(String),
     #[error("end of file")]
-    EOF,
+    Eof,
 }
 
 struct GitModulesParser<'a> {
@@ -68,7 +68,7 @@ impl<'a> GitModulesParser<'a> {
                 Err(err) => match err {
                     ParseError::InvalidFile(_) => return Err(err),
                     ParseError::IO(err) => return Err(ParseError::from(err)),
-                    ParseError::EOF => break 'l,
+                    ParseError::Eof => break 'l,
                 },
             }
         }
@@ -101,7 +101,7 @@ impl<'a> GitModulesParser<'a> {
                 let key = match self.parse_until_or_err('=') {
                     Ok(key) => key,
                     Err(err) => match err {
-                        ParseError::EOF => break 'l,
+                        ParseError::Eof => break 'l,
                         _ => return Err(err),
                     },
                 };
@@ -128,7 +128,7 @@ impl<'a> GitModulesParser<'a> {
                 self.input = &self.input[pos + 1..];
                 Ok(result)
             }
-            None => Err(ParseError::EOF),
+            None => Err(ParseError::Eof),
         }
     }
 
