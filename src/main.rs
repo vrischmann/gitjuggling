@@ -43,24 +43,27 @@ fn parse_gitmodules(path: &Path) -> anyhow::Result<GitModules> {
     Ok(gitmodules)
 }
 
-fn is_submodule(path: &Path, gitmodules: Option<&GitModules>) -> anyhow::Result<bool> {
+fn is_submodule(path: &Path, gitmodules: Option<&GitModules>) -> bool {
     match gitmodules {
         Some(gitmodules) => {
             // If this is a submodule:
             // * path is the git submodule directory
             // * parent path is the parent git repository containing the gitmodules
 
-            let parent_path = path.parent().ok_or(anyhow!("no parent path"))?;
+            let parent_path = match path.parent().ok_or(anyhow!("no parent path")) {
+                Ok(path) => path,
+                Err(_) => return false,
+            };
 
             let tmp = parent_path
                 .components()
                 .last()
                 .map(|p| PathBuf::from(p.as_os_str()))
-                .ok_or(anyhow!("no last component"))?;
+                .unwrap_or_default();
 
-            Ok(gitmodules.contains(&tmp))
+            gitmodules.contains(&tmp)
         }
-        None => Ok(false),
+        None => false,
     }
 }
 
@@ -87,7 +90,9 @@ fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
         // Parse the gitmodules file if it exists
         let gitmodules_path = path.join(".gitmodules");
         if gitmodules_path.exists() {
-            gitmodules = Some(parse_gitmodules(&gitmodules_path)?)
+            if let Ok(tmp) = parse_gitmodules(&gitmodules_path) {
+                gitmodules = Some(tmp)
+            }
         }
 
         // Ignore directories that aren't a git repository
@@ -95,7 +100,7 @@ fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
             continue;
         }
         // Ignore repositories that are a submoduile
-        if is_submodule(&path, gitmodules.as_ref())? {
+        if is_submodule(&path, gitmodules.as_ref()) {
             continue;
         }
 
