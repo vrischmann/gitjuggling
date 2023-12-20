@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
 
+use onlyerror::Error;
+
 #[derive(Debug)]
 pub struct GitSubmodule {
     name: String,
@@ -38,9 +40,9 @@ impl GitModules {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 enum ParseError {
-    #[error(transparent)]
+    #[error("i/o error: {0}")]
     IO(#[from] IoError),
     #[error("invalid file: {0}")]
     InvalidFile(String),
