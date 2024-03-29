@@ -4,7 +4,7 @@
 %global crate gitjuggling
 
 Name:           rust-gitjuggling
-Version:        1.0.0
+Version:        1.1.0
 Release:        %autorelease
 Summary:        Run a git command in all repositories under the current working directory
 
