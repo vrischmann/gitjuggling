@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Vincent Rischmann <vincent@rischmann.fr>"]
 description = "Run a git command in all repositories under the current working directory"
 readme = "README.md"
-homepage = "https://github.com/vrischmann/gitjuggling"
+repository = "https://github.com/vrischmann/gitjuggling"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
