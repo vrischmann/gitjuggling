@@ -118,13 +118,8 @@ fn main() {
         .version("1.0")
         .about("Git juggler")
         .trailing_var_arg(true)
-        .arg(
-            clap::Arg::new("depth")
-                .long("depth")
-                .short('d')
-                .takes_value(true),
-        )
-        .arg(clap::Arg::new("git_args").multiple_values(true))
+        .arg(clap::Arg::new("depth").long("depth").short('d').num_args(1))
+        .arg(clap::Arg::new("git_args").num_args(1..))
         .get_matches();
 
     let git_args: Vec<&str> = matches
