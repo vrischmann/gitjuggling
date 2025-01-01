@@ -6,11 +6,9 @@ use gitmodules::GitModules;
 use rayon::prelude::*;
 use std::fmt::Write as FmtWrite;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 use walkdir::WalkDir;
 
 mod gitmodules;
@@ -143,7 +141,7 @@ fn main() {
 
     // Can't use to many threads due to SSH multiplexing
     rayon::ThreadPoolBuilder::new()
-        .num_threads(2)
+        .num_threads(0)
         .build_global()
         .unwrap();
 
@@ -161,21 +159,37 @@ fn main() {
     let results: Vec<Item> = repositories_paths
         .into_par_iter()
         .map(|path| {
-            let mut stdout = String::new();
+            let mut output = String::new();
+
+            writeln!(
+                &mut output,
+                "{} executing {}",
+                &path.to_string_lossy().to_string().green(),
+                &git_args.join(" ").yellow()
+            )
+            .unwrap();
 
             match do_git_command(&path, &git_args) {
                 Err(err) => Item {
                     path: path.clone(),
                     success: false,
-                    stdout,
+                    stdout: String::new(),
                     stderr: String::new(),
                     err: Some(err),
                 },
                 Ok(go) => {
-                    let go_stdout = String::from_utf8_lossy(&go.output.stdout);
-                    stdout.push_str(&go_stdout);
+                    let stdout = String::from_utf8_lossy(&go.output.stdout)
+                        .trim()
+                        .to_string();
+                    let stderr = String::from_utf8_lossy(&go.output.stderr)
+                        .trim()
+                        .to_string();
 
-                    let stderr = String::from_utf8_lossy(&go.output.stderr).to_string();
+                    write!(&mut output, "{}", stdout).unwrap();
+                    if !stderr.is_empty() {
+                        write!(&mut output, "\n{}", stderr).unwrap();
+                    }
+                    println!("{}", output);
 
                     Item {
                         path: path.clone(),
@@ -189,31 +203,28 @@ fn main() {
         })
         .collect();
 
-    let (succeeded, failed): (Vec<_>, Vec<_>) = results
-        .into_iter()
-        .filter(|item| item.success)
-        .partition(|item| item.success);
+    let (succeeded, failed): (Vec<_>, Vec<_>) = results.into_iter().partition(|item| item.success);
 
     //
 
-    for item in &succeeded {
-        println!(
-            "{} executing {}",
-            &item.path.to_string_lossy().to_string().green(),
-            &git_args.join(" ").yellow()
-        );
+    if !failed.is_empty() {
+        println!("Details of failed items");
 
-        print!("{}", item.stdout);
+        for item in &failed {
+            println!("{}", &item.path.to_string_lossy().to_string().green());
 
-        if let Some(err) = &item.err {
-            println!("error: {}", err);
-        } else {
-            print!("{}", item.stderr);
+            print!("{}", item.stdout);
+
+            if let Some(err) = &item.err {
+                println!("error: {}", err);
+            } else {
+                print!("{}", item.stderr);
+            }
         }
     }
 
     println!(
-        "\n{}{}{}\n",
+        "\n\n{}{}{}\n",
         "=== ".bright_white(),
         "Summary".bright_cyan(),
         " ===".bright_white()
