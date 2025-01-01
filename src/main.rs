@@ -118,6 +118,18 @@ struct Item {
     err: Option<anyhow::Error>,
 }
 
+const STDOUT_COLOR: colored::Color = colored::Color::TrueColor {
+    r: 176,
+    g: 176,
+    b: 176,
+};
+
+const STDERR_COLOR: colored::Color = colored::Color::TrueColor {
+    r: 219,
+    g: 154,
+    b: 154,
+};
+
 fn main() {
     let matches = clap::Command::new("gitjuggling")
         .disable_version_flag(true)
@@ -185,11 +197,13 @@ fn main() {
                         .trim()
                         .to_string();
 
-                    write!(&mut output, "{}", stdout).unwrap();
-                    if !stderr.is_empty() {
-                        write!(&mut output, "\n{}", stderr).unwrap();
+                    if !stdout.is_empty() {
+                        writeln!(&mut output, "{}", stdout.color(STDOUT_COLOR)).unwrap();
                     }
-                    println!("{}", output);
+                    if !stderr.is_empty() {
+                        writeln!(&mut output, "{}", stderr.color(STDERR_COLOR)).unwrap();
+                    }
+                    print!("{}", output);
 
                     Item {
                         path: path.clone(),
@@ -208,17 +222,24 @@ fn main() {
     //
 
     if !failed.is_empty() {
-        println!("Details of failed items");
+        println!(
+            "\n\n{}{}{}\n",
+            "=== ".bright_white(),
+            "Details of failed items".bright_red(),
+            " ===".bright_white()
+        );
 
         for item in &failed {
             println!("{}", &item.path.to_string_lossy().to_string().green());
 
-            print!("{}", item.stdout);
+            if !item.stdout.is_empty() {
+                println!("{}", item.stdout);
+            }
 
             if let Some(err) = &item.err {
                 println!("error: {}", err);
             } else {
-                print!("{}", item.stderr);
+                println!("{}", item.stderr.color(STDERR_COLOR));
             }
         }
     }
