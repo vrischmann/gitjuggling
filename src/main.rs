@@ -112,14 +112,25 @@ fn get_repositories_paths(depth: usize) -> anyhow::Result<Vec<PathBuf>> {
     Ok(repositories_paths)
 }
 
+struct Item {
+    path: PathBuf,
+    success: bool,
+    stdout: String,
+    stderr: String,
+    err: Option<anyhow::Error>,
+}
+
 fn main() {
     let matches = clap::Command::new("gitjuggling")
-        .author("Vincent Rischmann <vincent@rischmann.fr>")
-        .version("1.0")
+        .disable_version_flag(true)
         .about("Git juggler")
-        .trailing_var_arg(true)
         .arg(clap::Arg::new("depth").long("depth").short('d').num_args(1))
-        .arg(clap::Arg::new("git_args").num_args(1..))
+        .arg(
+            clap::Arg::new("git_args")
+                .num_args(1..)
+                .required(true)
+                .trailing_var_arg(true),
+        )
         .get_matches();
 
     let git_args: Vec<&str> = matches
@@ -127,6 +138,14 @@ fn main() {
         .unwrap_or_default()
         .map(String::as_str)
         .collect();
+
+    // Setup rayon.
+
+    // Can't use to many threads due to SSH multiplexing
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(2)
+        .build_global()
+        .unwrap();
 
     // Collect all local git repositories
 
@@ -139,59 +158,79 @@ fn main() {
 
     //
 
-    let items_failed = Arc::<AtomicUsize>::new(AtomicUsize::new(0));
-    let items_succeeded = Arc::<AtomicUsize>::new(AtomicUsize::new(0));
+    let results: Vec<Item> = repositories_paths
+        .into_par_iter()
+        .map(|path| {
+            let mut stdout = String::new();
 
-    repositories_paths.into_par_iter().for_each(|path| {
-        let mut stdout = String::new();
-        let mut stderr = String::new();
+            match do_git_command(&path, &git_args) {
+                Err(err) => Item {
+                    path: path.clone(),
+                    success: false,
+                    stdout,
+                    stderr: String::new(),
+                    err: Some(err),
+                },
+                Ok(go) => {
+                    let go_stdout = String::from_utf8_lossy(&go.output.stdout);
+                    stdout.push_str(&go_stdout);
 
-        writeln!(
-            &mut stdout,
-            "{} executing {}",
-            &path.to_string_lossy().to_string().green(),
-            &git_args.join(" ").yellow()
-        )
-        .unwrap();
+                    let stderr = String::from_utf8_lossy(&go.output.stderr).to_string();
 
-        match do_git_command(&path, &git_args) {
-            Err(err) => {
-                items_failed.fetch_add(1, Ordering::SeqCst);
-                write!(&mut stderr, "unable to do git command, err: {}", err).unwrap();
-            }
-            Ok(go) => {
-                let go_stdout = String::from_utf8_lossy(&go.output.stdout);
-                let go_stderr = String::from_utf8_lossy(&go.output.stderr);
-
-                if go.output.status.success() {
-                    items_succeeded.fetch_add(1, Ordering::SeqCst);
-                    write!(&mut stdout, "{}", go_stdout).unwrap();
-                } else {
-                    items_failed.fetch_add(1, Ordering::SeqCst);
-                    write!(&mut stdout, "{}", go_stdout,).unwrap();
-                    write!(&mut stderr, "{}", go_stderr,).unwrap();
+                    Item {
+                        path: path.clone(),
+                        success: go.output.status.success(),
+                        stdout,
+                        stderr,
+                        err: None,
+                    }
                 }
             }
-        }
+        })
+        .collect();
 
-        io::stdout().write_all(stdout.as_bytes()).unwrap();
-        io::stderr().write_all(stderr.as_bytes()).unwrap();
-    });
+    let (succeeded, failed): (Vec<_>, Vec<_>) = results
+        .into_iter()
+        .filter(|item| item.success)
+        .partition(|item| item.success);
 
     //
 
-    let succeeded = items_succeeded.load(Ordering::SeqCst);
-    let failed = items_failed.load(Ordering::SeqCst);
+    for item in &succeeded {
+        println!(
+            "{} executing {}",
+            &item.path.to_string_lossy().to_string().green(),
+            &git_args.join(" ").yellow()
+        );
+
+        print!("{}", item.stdout);
+
+        if let Some(err) = &item.err {
+            println!("error: {}", err);
+        } else {
+            print!("{}", item.stderr);
+        }
+    }
 
     println!(
-        "{} {} {} {}",
-        format!("{}", succeeded).magenta(),
-        "items succeeded,".blue(),
-        format!("{}", failed).magenta(),
-        "items failed".blue(),
+        "\n{}{}{}\n",
+        "=== ".bright_white(),
+        "Summary".bright_cyan(),
+        " ===".bright_white()
     );
 
-    if failed > 0 {
+    println!(
+        "{} {}",
+        "Succeeded: ".blue(),
+        format!("{}", succeeded.len()).bright_green()
+    );
+    println!(
+        "{} {}",
+        "Failed:    ".blue(),
+        format!("{}", failed.len()).bright_red()
+    );
+
+    if !failed.is_empty() {
         process::exit(1);
     }
 }
