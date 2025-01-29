@@ -134,7 +134,20 @@ fn main() {
     let matches = clap::Command::new("gitjuggling")
         .disable_version_flag(true)
         .about("Git juggler")
-        .arg(clap::Arg::new("depth").long("depth").short('d').num_args(1))
+        .arg(
+            clap::Arg::new("depth")
+                .long("depth")
+                .short('d')
+                .num_args(1)
+                .value_parser(clap::value_parser!(usize)),
+        )
+        .arg(
+            clap::Arg::new("concurrency")
+                .long("concurrency")
+                .short('c')
+                .num_args(1)
+                .value_parser(clap::value_parser!(usize)),
+        )
         .arg(
             clap::Arg::new("git_args")
                 .num_args(1..)
@@ -152,14 +165,16 @@ fn main() {
     // Setup rayon.
 
     // Can't use to many threads due to SSH multiplexing
+    let concurrency = matches.get_one("concurrency").copied().unwrap_or(2);
+
     rayon::ThreadPoolBuilder::new()
-        .num_threads(0)
+        .num_threads(concurrency)
         .build_global()
         .unwrap();
 
     // Collect all local git repositories
 
-    let depth = matches.get_one::<usize>("depth").copied().unwrap_or(3);
+    let depth = matches.get_one("depth").copied().unwrap_or(3);
 
     let repositories_paths = match get_repositories_paths(depth) {
         Err(err) => panic!("unable to get repositories paths: {}", err),
