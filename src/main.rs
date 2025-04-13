@@ -55,7 +55,7 @@ fn is_submodule(path: &Path, gitmodules: Option<&GitModules>) -> bool {
 
             let tmp = parent_path
                 .components()
-                .last()
+                .next_back()
                 .map(|p| PathBuf::from(p.as_os_str()))
                 .unwrap_or_default();
 
