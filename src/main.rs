@@ -3,12 +3,14 @@
 use anyhow::anyhow;
 use colored::Colorize;
 use gitmodules::GitModules;
+use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
-use std::fmt::Write as FmtWrite;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
+use std::time::Instant;
 use walkdir::WalkDir;
 
 mod gitmodules;
@@ -149,6 +151,13 @@ fn main() {
                 .value_parser(clap::value_parser!(usize)),
         )
         .arg(
+            clap::Arg::new("verbose")
+                .long("verbose")
+                .short('v')
+                .num_args(0)
+                .help("Show output from all repositories, not just failures"),
+        )
+        .arg(
             clap::Arg::new("git_args")
                 .num_args(1..)
                 .required(true)
@@ -156,6 +165,7 @@ fn main() {
         )
         .get_matches();
 
+    let verbose = matches.get_flag("verbose");
     let git_args: Vec<&str> = matches
         .get_many::<String>("git_args")
         .unwrap_or_default()
@@ -164,7 +174,7 @@ fn main() {
 
     // Setup rayon.
 
-    // Can't use to many threads due to SSH multiplexing
+    // Can't use too many threads due to SSH multiplexing
     let concurrency = matches.get_one("concurrency").copied().unwrap_or(2);
 
     rayon::ThreadPoolBuilder::new()
@@ -181,29 +191,40 @@ fn main() {
         Ok(v) => v,
     };
 
-    //
+    // Setup progress bar
+    let total = repositories_paths.len();
+    let pb = Arc::new(ProgressBar::new(total as u64));
+    pb.set_style(
+        ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}  {wide_msg}")
+            .unwrap()
+            .progress_chars("█░"),
+    );
+    pb.set_message("Processing");
+
+    let start_time = Instant::now();
 
     let results: Vec<Item> = repositories_paths
         .into_par_iter()
         .map(|path| {
-            let mut output = String::new();
+            let pb = Arc::clone(&pb);
+            let repo_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.to_string_lossy().to_string());
 
-            writeln!(
-                &mut output,
-                "{} executing {}",
-                &path.to_string_lossy().to_string().green(),
-                &git_args.join(" ").yellow()
-            )
-            .unwrap();
+            pb.set_message(repo_name.clone());
 
             match do_git_command(&path, &git_args) {
-                Err(err) => Item {
-                    path: path.clone(),
-                    success: false,
-                    stdout: String::new(),
-                    stderr: String::new(),
-                    err: Some(err),
-                },
+                Err(err) => {
+                    pb.inc(1);
+                    Item {
+                        path: path.clone(),
+                        success: false,
+                        stdout: String::new(),
+                        stderr: String::new(),
+                        err: Some(err),
+                    }
+                }
                 Ok(go) => {
                     let stdout = String::from_utf8_lossy(&go.output.stdout)
                         .trim()
@@ -212,13 +233,7 @@ fn main() {
                         .trim()
                         .to_string();
 
-                    if !stdout.is_empty() {
-                        writeln!(&mut output, "{}", stdout.color(STDOUT_COLOR)).unwrap();
-                    }
-                    if !stderr.is_empty() {
-                        writeln!(&mut output, "{}", stderr.color(STDERR_COLOR)).unwrap();
-                    }
-                    print!("{}", output);
+                    pb.inc(1);
 
                     Item {
                         path: path.clone(),
@@ -232,15 +247,40 @@ fn main() {
         })
         .collect();
 
+    pb.finish_and_clear();
+
+    let elapsed = start_time.elapsed();
     let (succeeded, failed): (Vec<_>, Vec<_>) = results.into_iter().partition(|item| item.success);
 
-    //
+    // Print detailed output based on verbose flag
+    if verbose {
+        println!(
+            "\n{}{}{}\n",
+            "=== ".bright_white(),
+            "Output".bright_cyan(),
+            " ===".bright_white()
+        );
+
+        for item in &succeeded {
+            println!("{}", &item.path.to_string_lossy().to_string().green());
+            if !item.stdout.is_empty() {
+                println!("{}", item.stdout.color(STDOUT_COLOR));
+            }
+            if !item.stderr.is_empty() {
+                println!("{}", item.stderr.color(STDERR_COLOR));
+            }
+            println!();
+        }
+    }
 
     if !failed.is_empty() {
+        if !verbose {
+            println!();
+        }
         println!(
-            "\n\n{}{}{}\n",
+            "{}{}{}\n",
             "=== ".bright_white(),
-            "Details of failed items".bright_red(),
+            "Failed Items".bright_red(),
             " ===".bright_white()
         );
 
@@ -248,19 +288,20 @@ fn main() {
             println!("{}", &item.path.to_string_lossy().to_string().green());
 
             if !item.stdout.is_empty() {
-                println!("{}", item.stdout);
+                println!("{}", item.stdout.color(STDOUT_COLOR));
             }
 
             if let Some(err) = &item.err {
                 println!("error: {}", err);
-            } else {
+            } else if !item.stderr.is_empty() {
                 println!("{}", item.stderr.color(STDERR_COLOR));
             }
+            println!();
         }
     }
 
     println!(
-        "\n\n{}{}{}\n",
+        "\n{}{}{}\n",
         "=== ".bright_white(),
         "Summary".bright_cyan(),
         " ===".bright_white()
@@ -268,13 +309,18 @@ fn main() {
 
     println!(
         "{} {}",
-        "Succeeded: ".blue(),
+        "Succeeded:".blue(),
         format!("{}", succeeded.len()).bright_green()
     );
     println!(
         "{} {}",
-        "Failed:    ".blue(),
+        "Failed:   ".blue(),
         format!("{}", failed.len()).bright_red()
+    );
+    println!(
+        "{} {}s",
+        "Time:     ".blue(),
+        format!("{:.2}", elapsed.as_secs_f64()).bright_white()
     );
 
     if !failed.is_empty() {
