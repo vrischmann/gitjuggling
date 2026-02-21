@@ -195,11 +195,11 @@ fn main() {
     let total = repositories_paths.len();
     let pb = Arc::new(ProgressBar::new(total as u64));
     pb.set_style(
-        ProgressStyle::with_template("{msg} [{bar:40}] {pos}/{len}  {wide_msg}")
+        ProgressStyle::with_template("Processing [{bar:40}] {pos}/{len}  {msg}")
             .unwrap()
             .progress_chars("█░"),
     );
-    pb.set_message("Processing");
+    pb.set_message("");
 
     let start_time = Instant::now();
 
@@ -212,7 +212,7 @@ fn main() {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| path.to_string_lossy().to_string());
 
-            pb.set_message(repo_name.clone());
+            pb.set_message(repo_name);
 
             match do_git_command(&path, &git_args) {
                 Err(err) => {
